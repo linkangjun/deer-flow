@@ -50,7 +50,10 @@ Project writes are best-effort after the user pool commits. If the project write
 fails, the batch is consumed so later turns do not replay the paid model call or
 the committed user writes. The failure is logged and reported separately as
 `project_memory_apply_success: false`; `success` still describes the user-pool
-commit. A failed project update is not automatically retried.
+commit. A failed project update is not automatically retried. Individual facts
+whose text cannot be encoded as UTF-8 are rejected before the project write;
+valid facts in the same batch can still be saved. A rejected replacement does
+not remove the previous fact.
 
 The Instructions tab shows these facts below the editor. Delete incorrect or
 outdated facts, turn automatic extraction off, or move a fact into instructions.

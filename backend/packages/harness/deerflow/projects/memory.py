@@ -47,7 +47,7 @@ def _eligible(fact: Any) -> bool:
         return False
     labels = {k: str(fact.get(k, "")).strip().lower() for k in ("scope", "durability", "authority")}
     confidence = fact.get("confidence")
-    return (
+    if not (
         labels == {"scope": "project", "durability": "durable", "authority": "descriptive"}
         and isinstance(fact.get("content"), str)
         and bool(fact["content"].strip())
@@ -56,7 +56,15 @@ def _eligible(fact: Any) -> bool:
         and not isinstance(confidence, bool)
         and math.isfinite(confidence)
         and 0.7 <= confidence <= 1
-    )
+    ):
+        return False
+    try:
+        # JSON accepts escaped lone surrogates, but the rendered pool is UTF-8.
+        # Reject this item before it can roll back otherwise valid project facts.
+        fact["content"].encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 class ProjectMemoryRepository:

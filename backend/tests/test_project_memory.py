@@ -299,3 +299,54 @@ def test_user_commit_failure_remains_retryable_before_project_apply(repo, tmp_pa
     assert model.invoke.call_count == 2
     assert project_apply.call_count == 1
     assert metrics[-1]["project_memory_apply_success"] is True
+
+
+@pytest.mark.parametrize("invalid_content", ["Broken \ud800", "Broken \udfff"], ids=["high-surrogate", "low-surrogate"])
+def test_invalid_unicode_project_fact_preserves_valid_extraction(repo, tmp_path, invalid_content):
+    from unittest.mock import Mock
+
+    from deerflow.agents.memory.backends.deermem.deermem.config import DeerMemConfig
+    from deerflow.agents.memory.backends.deermem.deermem.core.storage import FileMemoryStorage
+    from deerflow.agents.memory.backends.deermem.deermem.core.updater import MemoryUpdater
+    from deerflow.projects.memory import prepare_project_extraction, render_memory, with_project_memory
+    from deerflow.runtime.context_keys import PROJECT_CONTEXT_KEY
+
+    model = Mock()
+    # JSON permits escaped lone surrogates even though UTF-8 cannot encode them.
+    model.invoke.return_value = AIMessage(
+        content=json.dumps(
+            {
+                "user": {},
+                "history": {},
+                "newFacts": [fact(invalid_content), fact("Reports exclude tax 财务 🚀"), dict(fact("Prefers Chinese"), scope="user")],
+            }
+        )
+    )
+    metrics = []
+    config = DeerMemConfig(storage_path=str(tmp_path / "global"), token_counting="char", staleness_review_enabled=False)
+    config.extraction_callback = metrics.append
+    config.project_memory = lambda messages, thread_id, user_id: prepare_project_extraction(messages, thread_id, user_id, repo=repo)
+    storage = FileMemoryStorage(config)
+    updater = MemoryUpdater(config=config, storage=storage, llm=model)
+    messages = with_project_memory([HumanMessage(content="Reports exclude tax", id="h1"), AIMessage(content="Understood", id="a1")], {PROJECT_CONTEXT_KEY: {"project_id": "p1", "memory": repo.get("p1", "u1")}})
+    assert updater.update_memory(messages, thread_id="t1", agent_name="__default__", user_id="u1")
+    assert [item["content"] for item in storage.load("__default__", user_id="u1")["facts"]] == ["Prefers Chinese"]
+    # A consumed batch is not retried: rejecting one item must save its valid peer now.
+    assert updater.update_memory(messages, thread_id="t1", agent_name="__default__", user_id="u1")
+    assert model.invoke.call_count == 1
+    state = repo.get("p1", "u1")
+    assert [item["content"] for item in state["facts"]] == ["Reports exclude tax 财务 🚀"]
+    assert metrics[0]["project_memory_apply_success"] is True
+    assert "Reports exclude tax 财务 🚀" in render_memory(state)
+
+
+@pytest.mark.parametrize("invalid_content", ["Broken \ud800", "Broken \udfff"], ids=["high-surrogate", "low-surrogate"])
+def test_invalid_unicode_replacement_preserves_old_fact_and_valid_peer(repo, invalid_content):
+    apply(repo, [fact("Use API v1")])
+    old = repo.get("p1", "u1")["facts"][0]
+    updates = {
+        "newFacts": [fact(invalid_content), fact()],
+        "factsToRemove": [{"id": old["id"], "scope": "project", "reason": "User corrected the API", "replacementFactIndex": 0}],
+    }
+    assert repo.apply("p1", "u1", "t1", 0, updates) == 1
+    assert [item["content"] for item in repo.get("p1", "u1")["facts"]] == ["Use API v1", "Reports exclude tax"]
