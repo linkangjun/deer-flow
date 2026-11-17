@@ -212,7 +212,9 @@ summarization:
   # Maximum tokens to trim when preparing messages for the summarizer
   trim_tokens_to_summarize: 15564
 
-  # Custom summary prompt (null = use DeerFlow's built-in prompt)
+  # Custom summary prompt (null = use DeerFlow's built-in prompt).
+  # str.format template with one {messages} placeholder. Double literal braces.
+  # A template that cannot render skips compaction instead of failing the turn.
   summary_prompt: null
 ```
 

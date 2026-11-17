@@ -88,6 +88,10 @@ make test-blocking-io
   through the dynamic-context channel. Summaries do not carry either.
 - Fraction-based triggers follow the model that runs the turn. A separate summary
   model only generates the summary.
+- A custom `summary_prompt` is a `str.format` template with one `{messages}`
+  placeholder. Double literal braces. A template that cannot render is a
+  generation failure: automatic compaction keeps history, and `raise_on_failure`
+  raises `SummaryGenerationError` instead of the format error.
 - Superseded-write elision is opt-in, because it rewrites earlier request prefixes.
 
 ## Concurrency

@@ -95,7 +95,11 @@ class SummarizationConfig(BaseModel):
 
     summary_prompt: str | None = Field(
         default=None,
-        description="Custom prompt template for generating summaries. Null selects DeerFlow's built-in prompt.",
+        description=(
+            "Custom prompt template for generating summaries. Null selects DeerFlow's built-in prompt. "
+            "This is a str.format template with a single {messages} placeholder; double literal braces. "
+            "A template that cannot render skips automatic compaction and is reported as a summary generation failure on manual compaction."
+        ),
     )
     skill_file_read_tool_names: list[str] = Field(
         default_factory=lambda: list(DEFAULT_SKILL_FILE_READ_TOOL_NAMES),

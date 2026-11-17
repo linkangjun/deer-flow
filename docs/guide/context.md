@@ -34,7 +34,9 @@ Automatic and manual compaction process all selected history in chronological
 chunks before replacing it. `summarization.trim_tokens_to_summarize` bounds raw
 input per step; generated summaries use at most half to leave room for source.
 The built-in summary prompt asks the model to preserve active user requirements
-and approval conditions. Set `summarization.summary_prompt` to supply a custom template.
+and approval conditions. Set `summarization.summary_prompt` to supply a custom
+`str.format` template with one `{messages}` placeholder; double literal braces.
+A template that cannot render skips automatic compaction instead of failing the turn.
 Oversized summaries retain marked head/tail text; raw history is never clipped.
 Native document titles, context and direct plain-text bodies are included in the
 summary input. Binary documents and remote media are not decoded or fetched;

@@ -244,7 +244,7 @@ keep:
 #### `summary_prompt`
 - **Type**: String or null
 - **Default**: `null` (uses DeerFlow's built-in prompt)
-- **Description**: Custom prompt template for generating summaries. The prompt should guide the model to extract the most important context.
+- **Description**: Custom prompt template for generating summaries. The prompt should guide the model to extract the most important context. It is a `str.format` template with one `{messages}` placeholder for the selected history. Double literal braces (`{{` and `}}`). A template that cannot render is a generation failure: automatic compaction leaves history unchanged, and manual `/compact` reports that failure instead of raising the format error out of the turn.
 
 #### `skill_file_read_tool_names`
 - **Type**: List of strings

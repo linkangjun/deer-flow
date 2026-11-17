@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextvars
+import logging
 import threading
 from types import SimpleNamespace
 from unittest import mock
@@ -1133,6 +1134,89 @@ def test_blank_primary_summary_falls_back_to_run_model(monkeypatch: pytest.Monke
     assert built == ["run-model"]  # fallback built + used
     assert result is not None
     assert result["summary_text"] == "from-run-model"
+
+
+_UNRENDERABLE_SUMMARY_PROMPTS = [
+    pytest.param('Summarize as JSON: {"summary": "..."} {messages}', id="literal-brace"),
+    pytest.param("Summarize {messages", id="unclosed-brace"),
+    pytest.param("Summarize {} {messages}", id="positional-slot"),
+    pytest.param("Summarize {messages.nope}", id="missing-attribute"),
+]
+
+
+def _prompt_middleware(summary_prompt: str, *, before_summarization=None) -> DeerFlowSummarizationMiddleware:
+    model = MagicMock()
+    model.invoke.return_value = AIMessage(content="compressed summary")
+    model.ainvoke = AsyncMock(return_value=AIMessage(content="compressed summary"))
+    model.with_config.return_value = model
+    return DeerFlowSummarizationMiddleware(
+        model=model,
+        trigger=("messages", 4),
+        keep=("messages", 2),
+        token_counter=len,
+        summary_prompt=summary_prompt,
+        before_summarization=before_summarization,
+    )
+
+
+@pytest.mark.parametrize("summary_prompt", _UNRENDERABLE_SUMMARY_PROMPTS)
+def test_unrenderable_summary_prompt_skips_automatic_compaction(summary_prompt: str, caplog: pytest.LogCaptureFixture) -> None:
+    """A custom template that str.format cannot render must not escape before_model.
+
+    Compaction runs inside the model hook. KeyError/ValueError/IndexError/
+    AttributeError from a literal brace, an unclosed brace, a positional slot,
+    or an attribute lookup used to fail the whole turn. The automatic path
+    leaves history unchanged and does not call the summary model or hooks.
+    """
+    captured: list[SummarizationEvent] = []
+    middleware = _prompt_middleware(summary_prompt, before_summarization=[captured.append])
+
+    with caplog.at_level(logging.WARNING, logger="deerflow.agents.middlewares.summarization_middleware"):
+        result = middleware.before_model({"messages": _messages()}, _runtime())
+
+    assert result is None
+    middleware.model.invoke.assert_not_called()
+    assert captured == []
+    assert any("failed to render" in record.message for record in caplog.records)
+    assert all("user-1" not in record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.parametrize("summary_prompt", _UNRENDERABLE_SUMMARY_PROMPTS)
+def test_unrenderable_summary_prompt_raises_summary_generation_error(summary_prompt: str) -> None:
+    """Manual /compact reports the same failure as SummaryGenerationError, not the raw format error."""
+    middleware = _prompt_middleware(summary_prompt)
+
+    with pytest.raises(SummaryGenerationError):
+        middleware.compact_state({"messages": _messages()}, _runtime(), force=True, raise_on_failure=True)
+
+    middleware.model.invoke.assert_not_called()
+    assert middleware._build_summary_prompt(_messages()) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("summary_prompt", _UNRENDERABLE_SUMMARY_PROMPTS)
+async def test_unrenderable_summary_prompt_skips_async_compaction(summary_prompt: str) -> None:
+    middleware = _prompt_middleware(summary_prompt)
+
+    assert await middleware.abefore_model({"messages": _messages()}, _runtime()) is None
+    middleware.model.ainvoke.assert_not_called()
+
+    with pytest.raises(SummaryGenerationError):
+        await middleware.acompact_state({"messages": _messages()}, _runtime(), force=True, raise_on_failure=True)
+
+
+def test_doubled_braces_in_summary_prompt_keep_literal_json_and_history() -> None:
+    """Operators escape literal braces by doubling them; {messages} still receives the history."""
+    middleware = _prompt_middleware('Summarize as JSON: {{"summary": "..."}} {messages}')
+
+    result = middleware.before_model({"messages": _messages()}, _runtime())
+
+    assert result is not None
+    assert result["summary_text"] == "compressed summary"
+    prompt = middleware.model.invoke.call_args.args[0]
+    assert '{"summary": "..."}' in prompt
+    assert "user-1" in prompt
+    assert "assistant-2" not in prompt
 
 
 def test_manual_compaction_failure_raises_summary_generation_error(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -201,6 +201,8 @@ summarization:
   trim_tokens_to_summarize: 15564
 
   # 自定义摘要提示词（null = 使用 DeerFlow 内置提示词）
+  # str.format 模板，只有一个 {messages} 占位符。字面量大括号写成 {{ 和 }}。
+  # 无法渲染的模板会跳过自动压缩，而不是让整轮对话失败。
   summary_prompt: null
 ```
 

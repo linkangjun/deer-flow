@@ -2343,7 +2343,10 @@ summarization:
   trim_tokens_to_summarize: 15564
 
   # Custom summary prompt template (null = use DeerFlow's built-in prompt)
-  # The prompt should guide the model to extract important context
+  # The prompt should guide the model to extract important context.
+  # str.format template with one {messages} placeholder. Double literal braces
+  # ({{ and }}). A template that cannot render skips automatic compaction
+  # instead of failing the turn; manual /compact reports a generation failure.
   summary_prompt: null
 
   # Loaded SKILL.md references (read_file calls under skills.container_path) are

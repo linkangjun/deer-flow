@@ -783,7 +783,10 @@ class DeerFlowSummarizationMiddleware(SummarizationMiddleware):
         body = self._build_summary_input_text(source[cursor:end], previous)
         if body is None:
             return None
-        return self.summary_prompt.format(messages=body).rstrip(), end
+        prompt = self._render_summary_prompt(body)
+        if prompt is None:
+            return None
+        return prompt, end
 
     def _build_summary_input_text(self, formatted_messages: str, previous_summary: str | None = None) -> str | None:
         """Wrap complete raw sections; never trim material selected for removal.
@@ -806,7 +809,27 @@ class DeerFlowSummarizationMiddleware(SummarizationMiddleware):
         source = self._summary_source_text(messages_to_summarize)
         previous = redact_text(previous_summary, getattr(self._app_config, "pii_redaction", None)) if previous_summary else None
         body = self._build_summary_input_text(source, previous)
-        return self.summary_prompt.format(messages=body).rstrip() if body else None
+        return self._render_summary_prompt(body) if body else None
+
+    def _render_summary_prompt(self, body: str) -> str | None:
+        """Substitute ``{messages}``. An unrenderable template is a generation failure.
+
+        ``summary_prompt`` is a ``str.format`` template. Literal braces must be
+        doubled. ``ValueError``, ``KeyError``, ``IndexError`` and
+        ``AttributeError`` from rendering stay inside this helper so they cannot
+        escape ``before_model``. Callers then follow the existing failure
+        contract: automatic compaction leaves history unchanged, and
+        ``raise_on_failure`` raises ``SummaryGenerationError``.
+        """
+        try:
+            rendered = self.summary_prompt.format(messages=body)
+        except (ValueError, KeyError, IndexError, AttributeError) as exc:
+            logger.warning(
+                "Summary prompt template failed to render (%s); skipping compaction. The template is a str.format string with a {messages} placeholder; double literal braces.",
+                type(exc).__name__,
+            )
+            return None
+        return rendered.rstrip()
 
     def before_model(self, state: AgentState, runtime: Runtime) -> dict | None:
         return self._maybe_summarize(state, runtime)
